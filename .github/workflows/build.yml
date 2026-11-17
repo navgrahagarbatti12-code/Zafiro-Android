@@ -12,33 +12,55 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Find and extract Zafiro ZIP
+        id: extract
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found in repository root"
+            exit 1
+          fi
+
+          mkdir extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          PROJECT_DIR=$(find extracted -type f -name settings.gradle.kts -printf '%h\n' | head -n 1)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project not found"
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK 37
+        run: sdkmanager "platforms;android-37" "platform-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Debug APK
+      - name: Build Zafiro Debug APK
         run: |
+          cd "${{ steps.extract.outputs.project_dir }}"
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew :app:assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Zafiro-Debug-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ steps.extract.outputs.project_dir }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
